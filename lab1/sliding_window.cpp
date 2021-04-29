@@ -1,5 +1,5 @@
-// #include "sysinclude.h"
-#include <arpa/inet.h>
+#include "sysinclude.h"
+// #include <arpa/inet.h>
 #include <iostream>
 #include <cstdio>
 #include <list>
@@ -13,7 +13,7 @@ extern void SendFRAMEPacket(unsigned char* pData, unsigned int len);
 
 typedef char uint_8;
 typedef enum { data, ack, nak } frame_kind;
-enum { MSG_TYPE_TIMEOUT, MSG_TYPE_SEND, MSG_TYPE_RECEIVE };
+// enum { MSG_TYPE_TIMEOUT, MSG_TYPE_SEND, MSG_TYPE_RECEIVE };
 
 struct frame_head {
     frame_kind kind;

@@ -1,8 +1,10 @@
+// #include "sysinclude.h"
+
 #include <iostream>
 #include <cstdio>
 #include <arpa/inet.h>
-#include <random>
-// #include "sysinclude.h"
+#include <cstdlib>
+
 using namespace std;
 
 extern void ip_DiscardPkt(char *pBuffer, int type);
@@ -10,7 +12,7 @@ extern void ip_SendtoLower(char *pBuffer, int length);
 extern void ip_SendtoUp(char *pBuffer, int length);
 extern unsigned int getIpv4Address();
 
-enum {
+typedef enum {
     STUD_IP_TEST_CHECKSUM_ERROR,
     STUD_IP_TEST_TTL_ERROR,
     STUD_IP_TEST_VERSION_ERROR,
@@ -34,7 +36,7 @@ typedef unsigned char byte;
 int stud_ip_recv(char *pBuffer, unsigned short length) {
     ipv4_head *recv_head = (ipv4_head *)(pBuffer);
     short version = (recv_head->version_IHL_service & 0xf000) >> 12;
-    short ttl = (recv_head->TTL_protocol & 0xff) >> 8;
+    short ttl = (recv_head->TTL_protocol & 0xff00) >> 8;
     short head_len = (recv_head->version_IHL_service & 0x0f00) >> 8;
     unsigned int sum = 0;
     // 按大端顺序加
@@ -60,7 +62,7 @@ int stud_ip_recv(char *pBuffer, unsigned short length) {
         return 1;
     }
 
-    if (ttl == 0) {
+    if (ntohs(ttl) == 0) {
         ip_DiscardPkt(pBuffer, STUD_IP_TEST_TTL_ERROR);
         return 1;
     }
@@ -87,7 +89,7 @@ int stud_ip_Upsend(char *pBuffer, unsigned short len, unsigned int srcAddr, unsi
     ((ipv4_head *) send_head)->destination_address = htonl(dstAddr);
     ((ipv4_head *) send_head)->TTL_protocol = (((unsigned short) ttl) << 4) | ((unsigned short) protocol);
     ((ipv4_head *) send_head)->total_length = htons(len + sizeof(ipv4_head));
-    ((ipv4_head *) send_head)->identification = (unsigned short) random();
+    ((ipv4_head *) send_head)->identification = (unsigned short) rand();
     ((ipv4_head *) send_head)->fragment_offset = 0x4000;
     ((ipv4_head *) send_head)->version_IHL_service = (0x4000) | ((sizeof(ipv4_head)) << 8);
 

@@ -1,9 +1,9 @@
-// #include "sysinclude.h"
+#include "sysinclude.h"
 
 #include <iostream>
 #include <cstdio>
 #include <cstring>
-#include <arpa/inet.h>
+// #include <arpa/inet.h>
 #include <cstdlib>
 
 using namespace std;
@@ -13,6 +13,7 @@ extern void ip_SendtoLower(char *pBuffer, int length);
 extern void ip_SendtoUp(char *pBuffer, int length);
 extern unsigned int getIpv4Address();
 
+/*
 typedef enum {
     STUD_IP_TEST_CHECKSUM_ERROR,
     STUD_IP_TEST_TTL_ERROR,
@@ -20,9 +21,9 @@ typedef enum {
     STUD_IP_TEST_HEADLEN_ERROR,
     STUD_IP_TEST_DESTINATION_ERROR
 };
+*/
 
-
-typedef unsigned char byte;
+// typedef unsigned char byte;
 
 int stud_ip_recv(char *pBuffer, unsigned short length) {
     if (((unsigned int)pBuffer[0]&0xf0) != 0x40) {
@@ -43,11 +44,11 @@ int stud_ip_recv(char *pBuffer, unsigned short length) {
     }
     unsigned int sum = 0;
     for (int i = 0; i < ((unsigned int)pBuffer[0]&0xf)*4; i += 2) {
-        sum += ntohs(*(unsigned short *)(pBuffer + i));
+        sum += (*(unsigned short *)(pBuffer + i));
     }
-    sum = (sum & 0xffff) + (sum >> 16);
-    sum = ~sum;
-    if (sum != 0) {
+    unsigned short sum2 = (sum & 0xffff) + (sum >> 16);
+    sum2 = ~sum2;
+    if (sum2 != 0) {
         ip_DiscardPkt(pBuffer, STUD_IP_TEST_CHECKSUM_ERROR);
         return 1;
     }

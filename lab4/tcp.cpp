@@ -149,7 +149,7 @@ void stud_tcp_output(char *pData, // 数据指针
     }
 
     // debug
-    printf("stud_tcp_output:%d %d %d\n", flag, sockets[cursock - 3].seq, sockets[cursock - 3].ack);
+    printf("stud_tcp_output:%d %d %d %x %x\n", flag, sockets[cursock - 3].seq, sockets[cursock - 3].ack, sockets[cursock - 3].srcAddr, sockets[cursock - 3].dstAddr = dstAddr);
 
     char *pBuffer;
     pBuffer = (char *)malloc(len + 20);
@@ -375,9 +375,16 @@ int stud_tcp_connect(int sockfd, // 套接字标志符
     sockets[sockfd - 3].curstate = SYN_SENT;
     sockets[sockfd - 3].dstAddr = ntohl(addr->sin_addr.s_addr);
     sockets[sockfd - 3].dstPort = ntohs(addr->sin_port);
-    stud_tcp_output(NULL, 0, PACKET_TYPE_SYN, sockets[sockfd - 3].srcPort, sockets[sockfd - 3].dstPort, sockets[sockfd - 3].srcAddr, sockets[sockfd - 3].dstAddr);
+    stud_tcp_output(NULL, 
+                    0, 
+                    PACKET_TYPE_SYN, 
+                    sockets[sockfd - 3].srcPort, 
+                    sockets[sockfd - 3].dstPort, 
+                    sockets[sockfd - 3].srcAddr, 
+                    sockets[sockfd - 3].dstAddr);
     // log
     printf("Sent syn packet\n");
+    socket.srcAddr = getIpv4Address();
 
     char *recv = (char *)malloc(BUFFERSIZE);
     int err = waitIpPacket(recv, TIMEOUT);
@@ -390,15 +397,26 @@ int stud_tcp_connect(int sockfd, // 套接字标志符
         printf("Receive type error, not SYN+ACK, connect failed\n");
         return -1;
     }
+    if (ntohs(((unsigned short *)recv)[0]) != sockets[sockfd - 3].dstPort ||
+        ntohs(((unsigned short *)recv)[1]) != sockets[sockfd - 3].srcPort ) {
+            printf("Wrong src and dst port, connection failed\n");
+            return -1;
+        }
 
     // 同步，初始化SeqNum和AckNum
-    sockets[sockfd - 3].seq = ntohl(((unsigned long *)recv)[2]);
-    sockets[sockfd - 3].ack = ntohl(((unsigned long *)recv)[1]) + 1;
+    sockets[sockfd - 3].seq = (((unsigned long *)recv)[2]);
+    sockets[sockfd - 3].ack = (((unsigned long *)recv)[1]) + 1;
 
     // log
     printf("Successfully connect\n");
 
-    stud_tcp_output(NULL, 0, PACKET_TYPE_ACK, sockets[sockfd - 3].srcPort, sockets[sockfd - 3].dstPort, sockets[sockfd - 3].srcAddr, sockets[sockfd - 3].dstAddr);
+    stud_tcp_output(NULL, 
+                    0, 
+                    PACKET_TYPE_ACK, 
+                    sockets[sockfd - 3].srcPort, 
+                    sockets[sockfd - 3].dstPort, 
+                    sockets[sockfd - 3].srcAddr, 
+                    sockets[sockfd - 3].dstAddr);
 
     // 转移状态
     sockets[sockfd - 3].curstate = ESTABLISHED;
@@ -426,6 +444,7 @@ int stud_tcp_send(int sockfd, // 套接字标志符
         printf("Connection not established, sent failed\n");
         return -1;
     }
+    sockets[sockfd - 3].srcAddr = getIpv4Address();
 
     stud_tcp_output((char *)pData, datalen, PACKET_TYPE_DATA, sockets[sockfd - 3].srcPort, sockets[sockfd - 3].dstPort, sockets[sockfd - 3].srcAddr, sockets[sockfd - 3].dstAddr);
 
@@ -466,10 +485,13 @@ int stud_tcp_recv(int sockfd, unsigned char *pData, uint16 dataLen, int flags) {
         printf("Timeout, recv failed\n");
         return -1;
     }
+    int header_len = (recv_data[12] >> 2) & 0x3c;
 
     memcpy(pData, (char *)(recv_data + (4 * (unsigned int)(recv_data[12] >> 4))), dataLen);
-    sockets[sockfd - 3].ack = ((unsigned long *)recv_data)[1] + 1;
-    sockets[sockfd - 3].seq++;
+    // 需要复习
+    sockets[sockfd - 3].ack = ntohl(((unsigned long *)recv_data)[1]) + err - header_len;
+    sockets[sockfd - 3].seq = ntohl(((unsigned long *)recv_data)[2]);
+    sockets[sockfd - 3].srcAddr = getIpv4Address();
     stud_tcp_output(NULL, 0, PACKET_TYPE_ACK, sockets[sockfd - 3].srcPort, sockets[sockfd - 3].dstPort, sockets[sockfd - 3].srcAddr, sockets[sockfd - 3].dstAddr);
     return 0;
 }
@@ -494,8 +516,9 @@ int stud_tcp_close(int sockfd) {
     }
 
     // 转移状态
-    sockets[sockfd - 3].curstate = FIN_WAIT_1;    
-    stud_tcp_output(NULL, 0, PACKET_TYPE_FIN, sockets[sockfd - 3].srcPort,sockets[sockfd - 3].dstPort, sockets[sockfd - 3].srcAddr, sockets[sockfd - 3].dstAddr);
+    sockets[sockfd - 3].curstate = FIN_WAIT_1;
+    sockets[sockfd - 3].srcAddr = getIpv4Address(); 
+    stud_tcp_output(NULL, 0, PACKET_TYPE_FIN_ACK, sockets[sockfd - 3].srcPort,sockets[sockfd - 3].dstPort, sockets[sockfd - 3].srcAddr, sockets[sockfd - 3].dstAddr);
     // log
     printf("Sent fin packet\n");
 
@@ -506,7 +529,7 @@ int stud_tcp_close(int sockfd) {
         printf("Timeout when trying to close, close failed\n");
         return -1;
     }
-    if (!(recv_ack[13] & 0x10)) { // ACK
+    if ((recv_ack[13] & 0x13) != 0x10) { // ACK
         printf("Receive type error, not ACK, close failed\n");
         return -1;
     }
@@ -521,18 +544,20 @@ int stud_tcp_close(int sockfd) {
         printf("Timeout when trying to close, close failed\n");
         return -1;
     }
-    if (!(recv_fin[13] & 0x1)) { // FIN 
-        printf("Receive type error, not FIN, close failed\n");
+    if ((recv_fin[13] & 0x13) != 0x11) { // FIN 
+        printf("Receive type error, not FIN_ACK, close failed\n");
         return -1;
     }
     
     sockets[sockfd - 3].ack = ntohl(((unsigned long *)recv_fin)[1]) + 1;
     sockets[sockfd - 3].seq = ntohl(((unsigned long *)recv_fin)[2]);
+    sockets[sockfd - 3].srcAddr = getIpv4Address();
     stud_tcp_output(NULL, 0, PACKET_TYPE_ACK, sockets[sockfd - 3].srcPort, sockets[sockfd - 3].dstPort, sockets[sockfd - 3].srcAddr, sockets[sockfd - 3].dstAddr);
 
     // 状态转移
     sockets[sockfd - 3].curstate = TIME_WAIT;
 
+    /*
     char *timeout_recv = (char *)malloc(BUFFERSIZE);
     err = waitIpPacket(timeout_recv, TIMEOUT);
     
@@ -540,6 +565,7 @@ int stud_tcp_close(int sockfd) {
         printf("Server send message, close failed\n");
         return -1;
     }
+    */
 
     // 转移状态
     sockets[sockfd - 3].curstate = CLOSED;

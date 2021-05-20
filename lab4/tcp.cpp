@@ -90,6 +90,30 @@ deque<tcp_wait> waitpacket;
 
 static int canSend = 1;
 
+unsigned short cal_checksum(char *pBuffer, unsigned long srcAddr, unsigned long dstAddr, int len) {
+    int tcp_len = len + 12;
+    if (tcp_len % 2) tcp_len += 1;
+    char *tcpBuffer = (char *)malloc(tcp_len);
+    memset(tcpBuffer, 0, tcp_len);
+    ((unsigned long *)tcpBuffer)[0] = htonl(srcAddr);
+    ((unsigned long *)tcpBuffer)[1] = htonl(dstAddr);
+    ((unsigned short *)tcpBuffer)[5] = htons(len);
+    tcpBuffer[9] = 0x6;
+
+    memcpy(tcpBuffer + 12, pBuffer, len);
+    unsigned int sum = 0;
+    for (int i = 0; i < tcp_len; i += 2) {
+        sum += (*((unsigned short *)(tcpBuffer + i)));
+    }
+    sum = (sum & 0xffff) + (sum >> 16);
+    unsigned short sum2 = ~sum;
+    
+    // debug
+    printf("checksum: %d\n", sum2);
+
+    return sum2;
+}
+
 // tcp packet send
 // TODO: 判断是否可以发送
 /*
@@ -167,35 +191,13 @@ void stud_tcp_output(char *pData, // 数据指针
         }
     }
 
-    // 校验和
-    unsigned int sum = 0;
-    for (int i = 0; i < (unsigned int)(pBuffer[12] >> 4) * 4; i += 2) {
-        sum += (*((unsigned short *)(pBuffer + i)));
-    }
-    // 加上伪头
-    sum += htons((unsigned short)(srcAddr & 0xffff));
-    sum += htons((unsigned short)(srcAddr >> 16));
-    sum += htons((unsigned short)(dstAddr & 0xffff));
-    sum += htons((unsigned short)(dstAddr >> 16));
-    sum += htons(0x0006); // TCP协议号为6
-    int mlen = len + 20; // 伪头
-    if (mlen % 2) mlen += 1;
-    sum += htons(mlen);
-    // 加上身体！！！
-    for (int i = 0; i < len; i += 2) {
-        sum += (*((unsigned short *)(pBuffer + i + 20)));
-    }
-    sum = (sum & 0xffff) + (sum >> 16);
-    unsigned short sum2 = ~sum;
-    ((unsigned short *)pBuffer)[8] = sum2;
-
-    // debug
-    printf("stud_tcp_output: checksum: %d %d\n", sum2, htons(sum2));
-
     // data
     if (pData) {
-        memcpy(pBuffer + 20, pData, sizeof(len));
+        memcpy(pBuffer + 20, pData, len);
     }
+
+    // 校验和
+    ((unsigned short *)pBuffer)[8] = cal_checksum(pBuffer, srcAddr, dstAddr, len + 20);
 
     tcp_sendIpPkt((unsigned char *)pBuffer, len + 20, srcAddr, dstAddr, 255);
 }
@@ -216,8 +218,8 @@ int stud_tcp_input(char *pBuff,
 
     // 参数提供的源和目的ip地址的转换
     unsigned int tmp = srcAddr;
-    srcAddr = htonl(dstAddr);
-    dstAddr = htonl(tmp);
+    srcAddr = ntohl(dstAddr);
+    dstAddr = ntohl(tmp);
 
     int cursock = 0;
     for (; cursock < sockets.size(); cursock++) {
@@ -253,26 +255,8 @@ int stud_tcp_input(char *pBuff,
     }
 
     // 检查校验和 
-    unsigned int sum = 0;
-    // 加上伪头
-    sum += htons((unsigned short)(srcAddr & 0xffff));
-    sum += htons((unsigned short)(srcAddr >> 16));
-    sum += htons((unsigned short)(dstAddr & 0xffff));
-    sum += htons((unsigned short)(dstAddr >> 16));
-    sum += htons(0x0006); // 协议号为17
-    int mlen = len; // 伪头
-    if (mlen % 2) mlen += 1;
-    sum += htons(mlen);
-    // 加上身体！！！
-    for (int i = 0; i < len; i += 2) {
-        sum += (*((unsigned short *)(pBuff + i)));
-    }
-    sum = (sum & 0xffff) + (sum >> 16);
-    unsigned short sum2 = ~sum;
+    unsigned int sum = cal_checksum(pBuff, srcAddr, dstAddr, len);
     
-    // debug
-    printf("stud_tcp_input: checksum: %d %d\n", sum2, htons(sum2));
-
     // 转换字节序
     ((unsigned short *)pBuff)[0] = sockets[cursock - 3].dstPort;
     ((unsigned short *)pBuff)[1] = sockets[cursock - 3].srcPort;
